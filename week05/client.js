@@ -4,44 +4,49 @@
  * @Autor: slq
  * @Date: 2020-05-13 20:16:53
  * @LastEditors: slq
- * @LastEditTime: 2020-05-13 23:55:14
- */
-const net = require('net');
-
+ * @LastEditTime: 2020-05-17 20:22:58
+ */ 
+const net =  require("net");
 class Request {
+    // method, url = host + port + path
+    // body: key vaue
+    // headers
 
     constructor(options){
         this.method = options.method || "GET";
         this.host = options.host;
-        this.path = options.path || "/";
-        this.port = options.port || 80;
+        this.port = options.port || 80; // http协议默认80
+        this.path = options.path || "/"; // http协议默认80
         this.body = options.body || {};
         this.headers = options.headers || {};
-        if (!this.headers["Content-Type"]){
-            this.headers["Content-Type"] = "application/x-www-form-urlencoded";
+        if(!this.headers["Content-Type"]){
+            this.headers["Content-Type"] = "application/x-www-form-urlencoded"
+            // console.log('设置content-type', this.headers["Content-Type"])
         }
-        if (this.headers["Content-Type"] === "application/json"){
-            this.bodyText = JSON.stringify(this.body);
+        if (this.headers["Content-Type"] === "text/json") {
+            this.headers["Content-Type"] = "application/json";
+            this.bodyText = JSON.stringify(options.body);
         } else if (this.headers["Content-Type"] === "application/x-www-form-urlencoded") {
-            this.bodyText = Object.keys(this.body).map(key => `${key} = ${encodeURIComponent(this.body[key])}`).join('&')
+            // this.headers["Content-Type"] = "application/json";
+            this.bodyText = Object.keys(this.body).map(key => // 配置bodyText文本
+                `${key}=${encodeURIComponent(this.body[key])}`
+            ).join('&');
+            // console.log('this.bodyText', this.bodyText)
+            this.headers["Content-Length"] = this.bodyText.length; // 计算content-length
         }
-        this.headers["Content-Length"] = this.bodyText.length;
     }
+    toString(){
+        return `${this.method} ${this.path} HTTP/1.1\r
+${Object.keys(this.headers).map(key => `${key}: ${this.headers[key]}`).join('\r\n')}
+\r
+${this.bodyText}`}
 
-    toString() {
-        return [
-            `${this.method} ${this.path} HTTP/1.1`,
-            `${Object.entries(this.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}`,
-            '',
-            `${this.bodyText}`
-        ].join('\r\n');
-    }
-    open(method,url){
+    open(method, url){
 
     }
-    send(connection) {
-        return new Promise((resolve, reject) => {
-            const parser = new ResponseParser();
+    send(connection){
+        return new Promise((resolve,reject)=> {
+            const parser = new ResponseParser;
             if (connection) {
                 connection.write(this.toString());
             } else {
@@ -51,175 +56,245 @@ class Request {
                 }, () => {
                     connection.write(this.toString());
                 })
-                connection.on('data', (data) => {
-                    const parser = new ResponseParser();
-                    parser.receive(data.toString());
-                    if (parser.isFinished) {
-                        console.log(parser.response);
-                    }
-                    connection.end();
-                });
-                connection.on('error', (err) => {
-                    reject(err);
-                    connection.end();
-                });
-                connection.on('end', () => {
-                    console.log('已从服务器断开');
-                });
             }
+
+            connection.on('data', (data) => {
+                parser.receive(data.toString());
+                // resolve(data.toString());
+                if(parser.isFinished){
+                    resolve(parser.response);
+                }
+                console.log(parser.statusLine);
+                console.log(parser.headers);
+                connection.end();
+            });
+            connection.on('error', (err) => {
+                reject(err);
+                connection.end();
+            });
         })
+
+        
     }
+
 }
 
 class Response {
 
 }
 
+
 class ResponseParser {
-    constructor() {
+    constructor(){
         this.WAITING_STATUS_LINE = 0;
         this.WAITING_STATUS_LINE_END = 1;
         this.WAITING_HEADER_NAME = 2;
-        this.WAITING_HEADER_NAME_END = 3;
-        this.WAITING_HEADER_SPACE = 4;
-        this.WAITING_HEADER_VALUE = 5;
-        this.WAITING_HEADER_LINE_END = 6;
-        this.WAITING_HEADER_BLOCK_END = 7;
-        this.WAITING_BODY = 8;
+        this.WAITING_HEADER_SPACE = 3;
+        this.WAITING_HEADER_VALUE = 4;
+        this.WAITING_HEADER_LINE_END = 5;
+        this.WAITING_HEADER_BLOCK_END = 6;
+        this.WAITING_BODY = 7;
 
-        this.current = this.WAITING_STATUS_LINE;
-        this.statusLine = '';
+        this.currentStatus = this.WAITING_STATUS_LINE
+        this.statusLine = "";
         this.headers = {};
-        this.headerName = '';
-        this.headerValue = '';
-
+        this.headerName = "";
+        this.headerValue = "";
         this.bodyParser = null;
     }
-
-    get isFinished() {
-        return this.bodyParser && this.bodyParser.isFinished
+    get isFinished(){
+        return this.bodyParser && this.bodyParser.isFinished;
     }
-
     get response() {
-        this.statusLine.match(/^HTTP\/1\.1 ([1-5]\d{2}) (\w+)/);
+        this.statusLine.match(/HTTP\/1.1 ([0-9]+) ([\s\S]+)/);
         return {
             statusCode: RegExp.$1,
-            statusTxet: RegExp.$2,
-            headers: this.headers,
-            body: this.bodyParser.content.join('')
+            statusText: RegExp.$2,
+            headers:this.headers,
+            body:this.bodyParser.content.join('')
         }
     }
-
-    receive(string) {
-        for (let i = 0; i < string.length; i++) {
+    receive(string){
+        let i = 0;
+        while(i<string.length){
             this.receiveChar(string.charAt(i));
+            i++;
         }
+        // for(let i = 0; i< string.length;i++){
+        //     this.receiveChar(string.charAt(i));
+        // }
     }
-
     receiveChar(char) {
-        if (this.current === this.WAITING_STATUS_LINE) {
-            if (char === '\r') {
-                this.current = this.WAITING_STATUS_LINE_END;
+        // status line
+        if (this.currentStatus === this.WAITING_STATUS_LINE){
+            // console.log(char.charCodeAt(0));
+            if(char === '\r'){
+                this.currentStatus = this.WAITING_STATUS_LINE_END;
+            } else if (char === '\n') {
+                this.currentStatus = this.WAITING_HEADER_NAME;
             } else {
-                this.statusLine += char;
+                this.statusLine += (char);
             }
-        } else if (this.current === this.WAITING_STATUS_LINE_END) {
-            this.current = this.WAITING_HEADER_NAME;
-        } else if (this.current === this.WAITING_HEADER_NAME) {
-            if (char === '\r') {
-                this.current = this.WAITING_HEADER_BLOCK_END
-            } else if (char === ':') {
-                this.current = this.WAITING_HEADER_SPACE;
+        }
+        else if (this.currentStatus === this.WAITING_STATUS_LINE_END) {
+            if (char === '\n') {
+                this.currentStatus = this.WAITING_HEADER_NAME;
+            }
+        }
+        // header name
+        else if (this.currentStatus === this.WAITING_HEADER_NAME) {
+            if (char === ':') {
+                this.currentStatus = this.WAITING_HEADER_SPACE;
+            } else if(char === '\r'){
+                this.currentStatus = this.WAITING_HEADER_BLOCK_END; // 结束
+                if (this.headers['Transfer-Encoding'] === 'chunked') {
+                    this.bodyParser = new TrunkedBodyParser();
+                }
+                
             } else {
-                this.headerName += char;
+                this.headerName += (char);
             }
-        } else if (this.current === this.WAITING_HEADER_SPACE) {
-            this.current = this.WAITING_HEADER_VALUE
-        } else if (this.current === this.WAITING_HEADER_VALUE) {
+        }
+        else if (this.currentStatus === this.WAITING_HEADER_SPACE) {
+            if (char === ' ') {
+                this.currentStatus = this.WAITING_HEADER_VALUE;
+            }
+        }
+        // heade value
+        else if (this.currentStatus === this.WAITING_HEADER_VALUE) {
             if (char === '\r') {
-                this.current = this.WAITING_HEADER_LINE_END;
+                this.currentStatus = this.WAITING_HEADER_LINE_END;
                 this.headers[this.headerName] = this.headerValue;
-                this.headerName = '';
-                this.headerValue = '';
+                this.headerName = "";
+                this.headerValue = "";
             } else {
-                this.headerValue += char;
+                this.headerValue += (char);
             }
-        } else if (this.current === this.WAITING_HEADER_LINE_END) {
-            this.current = this.WAITING_HEADER_NAME
-        } else if (this.current === this.WAITING_HEADER_BLOCK_END) {
-            this.current = this.WAITING_BODY
-            if (this.headers['Transfer-Encoding'] === 'chunked') {
-                this.bodyParser = new ChunkedBodyParser()
+        }
+        else if (this.currentStatus === this.WAITING_HEADER_LINE_END) {
+            if (char === '\n') {
+                this.currentStatus = this.WAITING_HEADER_NAME;
             }
-        } else if (this.current === this.WAITING_BODY) {
-            this.bodyParser.receiveChar(char)
+        }
+        else if (this.currentStatus === this.WAITING_HEADER_BLOCK_END) {
+            if (char === '\n') {
+                this.currentStatus = this.WAITING_BODY;
+            }
+        }
+        else if (this.currentStatus === this.WAITING_BODY) {
+            this.bodyParser.receiveChar(char);
         }
     }
 }
-
-class ChunkedBodyParser {
+class TrunkedBodyParser {
     constructor() {
-        this.READING_LENGTH_FIRSR_CHAR = 0;
-        this.READING_LENGTH = 1;
-        this.READING_LENGTH_END = 2;
-        this.READING_CHUNK = 3;
-        this.READING_CHUNK_END = 4;
-        this.BODY_BLOCK_END = 5;
+        this.WAITING_LENGTH = 0;
+        this.WAITING_LENGTH_LINE_END = 1;
+        this.READING_THUNK = 2;
+        this.WAITING_NEW_LINE = 3;
+        this.WAITING_NEW_LINE_END = 4;
+        this.isFinished = false;
+        this.length = 0;
+        this.content = [];
 
-        this.current = this.READING_LENGTH_FIRSR_CHAR;
-        this.content = []
-        this.chunkLength = 0
+        this.currentStatus = this.WAITING_LENGTH;
     }
-
-    get isFinished() {
-        return this.current === this.BODY_BLOCK_END
-    }
-
     receiveChar(char) {
-        if (this.current === this.READING_LENGTH_FIRSR_CHAR) {
-            if (char === '0') {
-                this.current = this.BODY_BLOCK_END;
+        // console.log(JSON.stringify(char));
+        if (this.currentStatus === this.WAITING_LENGTH){
+            if(char === '\r'){
+                if(this.length === 0){
+
+                    this.isFinished = true;
+                }
+                this.currentStatus = this.WAITING_LENGTH_LINE_END;
             } else {
-                this.chunkLength += Number(`0x${char}`);
-                this.current = this.READING_LENGTH;
+                this.length *= 10;
+                this.length += char.charCodeAt(0) - '0'.charCodeAt(0);
             }
-        } else if (this.current === this.READING_LENGTH) {
+        }
+        else if(this.currentStatus === this.WAITING_LENGTH_LINE_END) {
+            if (char === '\n') {
+                this.currentStatus = this.READING_THUNK;
+            }
+        }
+        else if (this.currentStatus === this.READING_THUNK) {
+            this.content.push(char);
+            this.length --;
+            if(this.length === 0){
+               this.currentStatus = this.WAITING_NEW_LINE;
+            }
+        }
+        else if(this.currentStatus === this.WAITING_NEW_LINE) {
             if (char === '\r') {
-                this.current = this.READING_LENGTH_END;
-            } else {
-                this.chunkLength = this.chunkLength * 16 + Number(`0x${char}`);
+                this.currentStatus = this.WAITING_NEW_LINE_END;
             }
-        } else if (this.current === this.READING_LENGTH_END) {
-            this.current = this.READING_CHUNK;
-        } else if (this.current === this.READING_CHUNK) {
-            if (char === '\r') {
-                this.current = this.READING_CHUNK_END
-                this.chunkLength = 0
-            } else if (this.chunkLength > 0) {
-                this.content.push(char);
-                this.chunkLength -= 1;
+        }
+        else if(this.currentStatus === this.WAITING_NEW_LINE_END) {
+            if (char === '\n') {
+                this.currentStatus = this.WAITING_LENGTH;
             }
-        } else if (this.current === this.READING_CHUNK_END) {
-            this.current = this.READING_LENGTH_FIRSR_CHAR;
         }
     }
 }
-void async function (){
-    let request1 = new Request({
+
+void async function () {
+    let request = new Request({
         method: "POST",
         host: "127.0.0.1",
-        port: "8088",
         path: "/",
+        port: "8088",
         headers: {
-            ["X-FOO2"]: "customed"
+            ["X-FOO2"]: "bar"
         },
         body: {
-            name: "slq",
-
+            name: "slq"
         }
     })
-
-   let response = await request1.send()
-   console.log(response)
-
+    let response = await request.send();
+    console.log(response)
 }()
+ 
+ /*
+const client = net.createConnection({
+    host:'127.0.0.1',
+    port:8088 }, ()=>{
+    console.log('connected to server 连接到服务器');
+    
+    // 这里要注意 开头不能有空格 ：后面要跟一个空格
+   client.write(`
+POST / HTTP/1.1\r
+Content-Type: application/x-www-form-urlencoded\r
+Content-Length: 8\r
+\r
+name=slq`); 
+    let require = new Request({
+        method:"POST",
+        host:"127.0.0.1",
+        path:"/",
+        port:"8088",
+        headers:{
+            ["X-FOO2"]: "bar"
+        },
+        body:{
+            name:"slq"
+        }
+    })
+    console.log(require.toString())
+    client.write(require.toString())
+});
+client.on('data', (data) => {
+    console.log(data.toString());
+    client.end();
+});
+client.on('end', () => {
+    console.log('已从服务器断开');
+});
+
+
+client.on('error', (err) => {
+    console.log(err);
+    client.end();
+});
+
+*/
