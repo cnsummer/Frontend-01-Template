@@ -4,7 +4,7 @@
  * @Autor: slq
  * @Date: 2020-05-13 20:16:53
  * @LastEditors: slq
- * @LastEditTime: 2020-05-26 23:53:30
+ * @LastEditTime: 2020-05-30 13:26:14
  */ 
 const net =  require("net");
 const render = require('./render');
@@ -256,9 +256,11 @@ void async function () {
         }
     })
     let response = await request.send();
+    // console.log('response', response)
     let dom = parser.parserHTML(response.body);
-
+    console.log('dom',dom)
     let viewport = images(800,600);
+    // console.log('dom', dom)
     render(viewport,dom);
     viewport.save("viewport.jpg");
     // console.log(dom);
